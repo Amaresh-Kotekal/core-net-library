@@ -674,7 +674,15 @@ int libnet_route_parse_table(struct rtnl_route *rt_route, char *input_str)
         int err = 0;
 
         numeric_val = strtoul(input_str, &scan_end, 0);
-        /* Treat as numeric only if entire string is consumed (prevents "100custom" being treated as 100) */
+
+        /* Skip trailing whitespace after the number */
+        while (*scan_end != '\0' && (*scan_end == ' ' || *scan_end == '\t' ||
+               *scan_end == '\n' || *scan_end == '\r')) {
+            scan_end++;
+        }
+
+        /* Treat as numeric only if entire string is consumed after skipping whitespace
+         * This accepts "100", "100\n", "100  " but rejects "100custom" */
         if (scan_end == input_str || *scan_end != '\0') {
             /* Not a pure number, try standard table names first */
             table_id = rtnl_route_str2table(input_str);
