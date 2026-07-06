@@ -666,6 +666,44 @@ FREE_ADDR:
  * fails, resolve it by name via rtnl_route_str2table.  Then set the routing
  * table on the route via rtnl_route_set_table.
  */
+/*
+ * Read custom routing table names from /etc/iproute2/rt_tables
+ * Returns table ID if found, -1 otherwise
+ */
+static int libnetReadCustomTableId(const char *pTableName)
+{
+    FILE *pFile;
+    char cLine[256];
+    int iTableId;
+    char cName[64];
+
+    if (NULL == pTableName) {
+        return -1;
+    }
+
+    pFile = fopen("/etc/iproute2/rt_tables", "r");
+    if (!pFile) {
+        return -1;
+    }
+
+    while (fgets(cLine, sizeof(cLine), pFile)) {
+        /* Skip comments and empty lines */
+        if (cLine[0] == '#' || cLine[0] == '\n') {
+            continue;
+        }
+ 
+        /* Parse: <id> <name> */
+        if (sscanf(cLine, "%d %63s", &iTableId, cName) == 2) {
+            if (strcmp(cName, pTableName) == 0) {
+                fclose(pFile);
+                return iTableId;
+            }
+        }
+    }
+    fclose(pFile);
+    return -1;
+}
+
 int libnet_route_parse_table(struct rtnl_route *rt_route, char *input_str)
 {
         unsigned long numeric_val;
@@ -675,11 +713,16 @@ int libnet_route_parse_table(struct rtnl_route *rt_route, char *input_str)
 
         numeric_val = strtoul(input_str, &scan_end, 0);
         if (scan_end == input_str) {
-                table_id = rtnl_route_str2table(input_str);
+            /* Not a number, try standard table names first */
+            table_id = rtnl_route_str2table(input_str);
+            if (table_id < 0) {
+                /* Try reading from /etc/iproute2/rt_tables for custom names */
+                table_id = libnetReadCustomTableId(input_str);
                 if (table_id < 0) {
-                        CNL_LOG_ERROR("Unknown table name %s\n", input_str);
-                        return EINVAL;
+                    CNL_LOG_ERROR("Unknown table name %s\n", input_str);
+                    return EINVAL;
                 }
+            }
         }
         else {
                 table_id = numeric_val;
