@@ -670,33 +670,44 @@ int libnet_route_parse_table(struct rtnl_route *rt_route, char *input_str)
 {
         unsigned long numeric_val;
         char *scan_end;
+        char *str_end;
         int table_id;
         int err = 0;
 
-        numeric_val = strtoul(input_str, &scan_end, 0);
+        /* Trim trailing whitespace in-place to handle tokens from strtok_r
+         * that may include newlines/spaces (e.g., "erouter\n" or "254\n") */
+        str_end = input_str + strlen(input_str);
+        while (str_end > input_str &&
+               (*(str_end - 1) == ' ' || *(str_end - 1) == '\t' ||
+                *(str_end - 1) == '\n' || *(str_end - 1) == '\r')) {
+                str_end--;
+        }
+        *str_end = '\0';
 
-        /* Skip trailing whitespace after the number */
-        while (*scan_end != '\0' && (*scan_end == ' ' || *scan_end == '\t' ||
-               *scan_end == '\n' || *scan_end == '\r')) {
-            scan_end++;
+        /* Check if string is empty after trimming (prevents whitespace-only being treated as 0) */
+        if (*input_str == '\0') {
+                CNL_LOG_ERROR("Empty table name after trimming whitespace\n");
+                return EINVAL;
         }
 
-        /* Treat as numeric only if entire string is consumed after skipping whitespace
-         * This accepts "100", "100\n", "100  " but rejects "100custom" */
+        numeric_val = strtoul(input_str, &scan_end, 0);
+
+        /* Treat as numeric only if entire string is consumed
+         * Now input_str is already trimmed, so this works correctly */
         if (scan_end == input_str || *scan_end != '\0') {
-            /* Not a pure number, try standard table names first */
-            table_id = rtnl_route_str2table(input_str);
-            if (table_id < 0) {
-                /* Load custom table names from /etc/iproute2/rt_tables using libnl */
-                if (rtnl_route_read_table_names("/etc/iproute2/rt_tables") >= 0) {
-                    /* Retry lookup only if file was successfully loaded */
-                    table_id = rtnl_route_str2table(input_str);
-                }
+                /* Not a pure number, try standard table names first */
+                table_id = rtnl_route_str2table(input_str);
                 if (table_id < 0) {
-                    CNL_LOG_ERROR("Unknown table name %s\n", input_str);
-                    return EINVAL;
+                        /* Load custom table names from /etc/iproute2/rt_tables using libnl */
+                        if (rtnl_route_read_table_names("/etc/iproute2/rt_tables") >= 0) {
+                                /* Retry lookup only if file was successfully loaded */
+                                table_id = rtnl_route_str2table(input_str);
+                        }
+                        if (table_id < 0) {
+                                CNL_LOG_ERROR("Unknown table name %s\n", input_str);
+                                return EINVAL;
+                        }
                 }
-            }
         }
         else {
                 table_id = numeric_val;
